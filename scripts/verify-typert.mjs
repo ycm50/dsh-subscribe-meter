@@ -1,5 +1,5 @@
 /**
- * 校验 dsh-CommandCode-meter **两个面**的 typert codec 形状,以及本包要同时兼容的
+ * 校验 dsh-newapi-meter **两个面**的 typert codec 形状,以及本包要同时兼容的
  * **两代宿主**契约。
  *
  * 背景:strict codec 的键名在两代 DSH 之间换过一次,且两代都是硬校验(不合格 →
@@ -75,7 +75,7 @@ function profileModuleDirs() {
 
 /**
  * 兄弟目录里的 DSH 源码检出:本 fork 常与 harness 检出并排放
- * (如 `A:\Downloads\dsh-CommandCode-meter` 与 `A:\Downloads\deepseek-harness`),
+ * (如 `A:\Downloads\dsh-newapi-meter` 与 `A:\Downloads\deepseek-harness`),
  * 自动纳入校验,免得默认 `npm test` 只覆盖到全局那份旧宿主。
  */
 function siblingCheckouts() {

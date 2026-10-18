@@ -1,10 +1,10 @@
-# dsh-CommandCode-meter
+# dsh-newapi-meter (new-api branch)
 
 <div align="center">
 
-**DeepSeek Harness session cost tracking plugin · Command Code GOAT edition (bilingual UI)**
+**DeepSeek Harness session cost tracking plugin · new-api edition (bilingual UI)**
 
-A GOAT-customized fork of [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter). All upstream features (per-conversation cost · official balance · budget box · custom provider balance · history · peak/off-peak pricing · official price sync · coding-plan quotas · token heat grid, …) are unchanged — only the **OpenCode Go quota card was replaced with the Command Code GOAT subscription quota**.
+A new-api–customized fork of [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter). All upstream features (per-conversation cost · official balance · budget box · custom provider balance · history · peak/off-peak pricing · official price sync · coding-plan quotas · token heat grid, …) are unchanged — only the **quota card's data source was replaced with the total/used quota of a new-api (new/one-api family) gateway**.
 
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![upstream](https://img.shields.io/badge/upstream-Han--1413141%2Fdsh--cost--meter-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
@@ -15,26 +15,38 @@ English | [中文](README.md)
 
 ---
 
+## Branches
+
+The quota card targets a different vendor per branch:
+
+| Branch | Quota card data source |
+|---|---|
+| `cmdc-goat` | Command Code GOAT subscription (`api.commandcode.ai/alpha/billing/credits`) |
+| `oc-go` | OpenCode Go subscription (`opencode.ai/zen/go/v1/usage`) |
+| **`new-api` (this branch)** | **A new-api / one-api gateway's site quota (`{base}/v1/dashboard/billing/*`)** |
+
+All three branches share one ledger (`$DSH_HOME/storages/cost-meter/ledger.json`); after switching branches, re-check the “quota source provider” (this branch) or the plan tier in Settings.
+
 ## Upstream & acknowledgements
 
 This plugin is a customized fork of [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter). The upstream `dsh-cost-meter` is a feature-complete **DeepSeek Harness session cost tracking plugin**: per-conversation cost, official balance query, budget box, custom provider balance, history, peak/off-peak pricing, official price sync, Coding Plan quotas, token heat grid, and more — with a built-in 90+ model price catalog and auto-matching, in a bilingual (zh/en) UI. It is maintained by [Han-1413141](https://github.com/Han-1413141) under the [MIT](LICENSE) license.
 
-**Why this fork**: we use the **Command Code GOAT** subscription (rather than OpenCode Go) day to day. The upstream Go-quota card only talks to `opencode.ai/zen/go/v1/usage`, so it cannot query Command Code subscription quotas. This repo therefore forks the project and replaces the Go-quota card with the official Command Code endpoint `GET https://api.commandcode.ai/alpha/billing/credits` (Bearer auth), adding 5-hour / weekly / monthly-pool “used / total + progress bar” displays; credential resolution was also switched to the DSH credential store / `COMMANDCODE_API_KEY` environment variable. Everything except the Go-quota card code — features, structure, docs — is inherited from upstream unchanged.
+**Why this fork**: our model traffic goes through a **new-api (new/one-api family) gateway**, whose total/used quota is only exposed by that site's own endpoints, while the upstream Go-quota card only talks to `opencode.ai/zen/go/v1/usage`. This repo therefore forks the project and repoints the quota card at the new-api billing endpoints. The site address and API key are **not configured here** — they are taken from the provider already configured under DSH **Settings → Models** (`llm-pi-ai.providers.<id>`: its `baseURL` and `apiKeyEnv`). Everything except the quota-card code — features, structure, docs — is inherited from upstream.
 
 **Acknowledgements**: thanks to [Han-1413141](https://github.com/Han-1413141) and all contributors of upstream dsh-cost-meter — the vast majority of this project's code and design comes from upstream; we only layered a targeted customization on top. Upstream repo: [Han-1413141/dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) (MIT).
 
 ---
 
-## What changed in this fork
+## What changed on this branch
 
 | Change | Details |
 |---|---|
-| Quota endpoint | Swapped from `opencode.ai/zen/go/v1/usage` to the **official Command Code endpoint** `GET https://api.commandcode.ai/alpha/billing/credits` (Bearer auth) |
-| Three windows | Rolling **5h / weekly / monthly pool** all show “used / total” numbers + individual progress bars (upstream only showed the main window's percent) |
-| Monthly pool math | GOAT monthly pool is **$70 of usage**; `used = pool − monthlyCredits`, `cap = pool`. The pool is **configurable** (Settings → “Monthly credit pool”, default $70), because the official `monthlyCredits` value is the remaining allowance of the **model tier you are currently billing against** — per-model allowances differ (see the table below) |
-| Sidebar | GOAT box renders the same three-window used/total + progress-bar style as the Settings page; the **budget box lost its budget progress bar** (budget, used %, today's cost & share, used/limit remain) |
-| Credentials | Key resolution is now **DSH credential store `COMMANDCODE_API_KEY`** → env `COMMANDCODE_API_KEY` → legacy config `goQuota.apiKey` (the opencode login-state auto-detect was removed) |
-| Copy | All “OpenCode Go” strings → “Command Code GOAT”; new `goQuotaUsedOf` (used/total) i18n key (zh/en) |
+| Quota endpoint | Switched to new-api's OpenAI-compatible billing endpoints: `GET {base}/v1/dashboard/billing/subscription` (total) + `GET {base}/v1/dashboard/billing/usage` (used), authenticated with `Bearer sk-…` |
+| Fallback path | When the billing endpoints are unavailable, falls back to `GET {base}/api/user/self` (system access token): `quota` (remaining) + `used_quota` (used) + `request_count` (total calls) |
+| Quota source | **Taken from DSH Settings → Models**: pick a provider in the Settings dropdown; its `baseURL` is the site address and its `apiKeyEnv` is the credential name (DSH credential store → same-named environment variable). No separate key field |
+| Card display | “Used / total + percent + progress bar + remaining”; the unit follows the site's display type (USD / CNY / TOKENS); total call count is appended when `/api/user/self` is readable |
+| Windows | new-api has a single site quota pool, so only that window renders (rolling 5h / weekly are always empty and no longer show as two “—” rows; the primary window is fixed to `monthly`) |
+| Safety | Plaintext HTTP on public hosts is refused (loopback/LAN allowed); redirects are not followed; the key only goes to the selected provider's own host; `cap ≤ 0` and similar are reported as bad responses instead of a fake 0% |
 
 ## Installation
 
@@ -42,13 +54,13 @@ This plugin is a customized fork of [dsh-cost-meter](https://github.com/Han-1413
 
 ```sh
 # Option 1: local directory (after cloning or extracting)
-dsh plugin --profile web add link:./dsh-CommandCode-meter
+dsh plugin --profile web add link:./dsh-subscribe-meter
 
-# Option 2: git URL (once the repo is published)
-dsh plugin --profile web add github:ycm50/dsh-CommandCode-meter
+# Option 2: git URL (once published; use #new-api for this branch)
+dsh plugin --profile web add github:ycm50/dsh-subscribe-meter#new-api
 
 # Option 3: dshmarket (if submitted to the marketplace)
-dsh plugin --profile web add dsh-CommandCode-meter
+dsh plugin --profile web add dsh-newapi-meter
 ```
 
 After installing, **restart** `dsh web` (plugin rows, the Typert manifest and the client bundle are all scanned at startup):
@@ -61,84 +73,71 @@ dsh web
 
 > Compatibility: every strict codec in `lib/typert.host.js` / `lib/client.js` must carry **both** `schema: <zod v4>` and `create: () => <zod>` — the 0.1.5-rc.x host generation only reads `schema`, 0.1.7+ only reads `create`. Dropping either key makes that generation reject the whole typert contribution (all Remote methods gone; settings page and cost panel silently break). After editing `lib/`, run `npm test` and refresh the installed copy in the profile as described above.
 
-## Configuring COMMANDCODE_API_KEY
+## Configuring the quota source (Settings → Models + Settings → Cost)
 
-Enter the key in **Settings → Cost → Quota (GOAT card) → API key input** (write-only, never echoed; stored in the DSH credential store), or set `COMMANDCODE_API_KEY` in the DSH credential vault / environment beforehand. Resolution order:
+1. Under **Settings → Models**, a provider pointing at your new-api site already exists (e.g. `umapi`): fill in its `baseURL` (e.g. `https://your-site` or `https://your-site/v1`) and its key (stored in the DSH credential store under the provider's `apiKeyEnv`, e.g. `UMAPI_API_KEY`).
+2. Under **Settings → Cost → Quota (new-api card)**, turn the switch on and pick that provider in the **provider dropdown** — the site address and key are then used automatically; the row below reports “Key ready (source: …)” or “Key not configured”.
+3. Optionally adjust the display position and refresh interval; the card's “Refresh quota” button queries immediately.
 
-1. DSH credential store (the Settings input saves here too)
-2. Environment variable `COMMANDCODE_API_KEY`
-3. Legacy config `goQuota.apiKey` (migration only)
+Quota semantics (checked against the [QuantumNous/new-api](https://github.com/QuantumNous/new-api), [songquanpeng/one-api](https://github.com/songquanpeng/one-api) and [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) sources, 2026-10):
 
-> ⚠️ The monthly pool is no longer a hardcoded constant: the $70 default comes from `COMMAND_CODE_PLANS.goat.monthlyCredits` in [lib/coding-plans.js](lib/coding-plans.js) and can be overridden in **Settings → Cost → Quota (GOAT card) → Monthly credit pool**. The endpoint is only contacted after you explicitly enable the GOAT quota.
+**Site type is auto-detected**: detected on the first query, persisted as `goQuota.apiKind` + `apiKindProvider`, cleared whenever the provider changes, and reused afterwards (a 404 on the stored path triggers one re-detection that overwrites it).
 
-## Verified GOAT pricing (from the official docs)
-
-| Item | Value |
+| Kind | Detection |
 |---|---|
-| Plan price | **$10 / month** |
-| Monthly credits | **$70 of usage** (a 7× multiplier) |
-| Rolling 5-hour cap | **$14** (opens on the first request of the window, not a fixed clock) |
-| Weekly cap | **$35** |
+| `oneapi` | `/v1/dashboard/billing/subscription` returns `hard_limit_usd` (one-api and new-api share this API; new-api is its continuation) |
+| `sub2api` | that path 404s while `/v1/usage` returns one of `mode` / `planName` / `quota` / `remaining` |
 
-> The 5-hour and weekly caps come straight from the API's `windowLimits.fiveHour / weekly` `used`/`cap` fields and are taken as-is; the “Monthly credit pool” setting does not affect them.
+one-api / new-api:
 
-**Per-model monthly allowances differ** (official model table): $70 (GLM-5.2 / GPT-5.6 Sol / Tencent Hy3), $60 (DeepSeek V4 Flash family / Kimi K2.7 Code), $47 (MiniMax M3), $40 (GLM-5.3 Flash / Gemini 3.8 Flash), $33 (Qwen 3.7 family), $30 (MiMo V2.5), $20 (other new models). The API's `monthlyCredits` is the remaining allowance of the **model you are currently billing against**, so `used = pool − remaining` only holds when the pool is that same tier's allowance. That is why the pool is a setting: blank = GOAT default $70; switch your main model to DeepSeek V4 Flash and set `60`. If the pool is set too small (remaining > pool) the panel warns instead of reporting inflated usage.
+| Endpoint | Auth | Field | Meaning |
+|---|---|---|---|
+| `/v1/dashboard/billing/subscription` | `Bearer sk-…` | `hard_limit_usd` | **Total quota = remaining + used** (source: `quota = remainQuota + usedQuota`) |
+| `/v1/dashboard/billing/usage` | `Bearer sk-…` | `total_usage` | **Used × 100** (OpenAI cents; source: `amount * 100`) |
+| `/api/user/self` | `Bearer <dashboard access token>` | `quota` / `used_quota` / `request_count` | Fallback: remaining + used + total calls |
+| `/api/status` | public | `quota_display_type` (older one-api: `display_in_currency`) | Display unit (USD / CNY / tokens), used only as a label |
 
-**Other plans** (set the corresponding value in “Monthly credit pool” when you switch):
+sub2api (`/v1/usage`, three shapes → the card's three windows):
 
-| Plan | Price/mo | Monthly credits | 5-hour cap | Weekly cap |
-|---|---|---|---|---|
-| Go | $1 | $10 | $3 | $6 |
-| **GOAT** | **$10** | **$70** | **$14** | **$35** |
-| Pro | $20 | $80 | $16 | $40 |
-| Max 10× | $100 | $150 | $45 | $90 |
-| Max 20× | $200 | $300 | $90 | $180 |
-| Team Pro | $40 | $40 | $12 | $24 |
+| Shape | Mapping |
+|---|---|
+| `mode=quota_limited` | `quota.limit/used` → monthly; `rate_limits` `5h` → rolling, `7d` (or `1d`) → weekly |
+| Subscription plan | `subscription.daily/weekly/monthly_usage_usd` ÷ the matching `_limit_usd` → rolling / weekly / monthly; the plan name is shown on the “Updated …” line |
+| Wallet balance | balance only: `usage.total.cost` reconstructs “used ÷ (balance + used)” so the progress bar still works |
 
-These values live in `COMMAND_CODE_PLANS` in [lib/coding-plans.js](lib/coding-plans.js), sourced from three official pages (fetched 2026-09):
+Both billing endpoints share one unit, so the used/total ratio and percentage are unit-independent; when the unit cannot be read, USD is assumed.
 
-- <https://commandcode.ai/docs/plans/goat> (GOAT: $10/mo → $70, the 7× multiplier)
-- <https://commandcode.ai/docs/resources/pricing-limits> (full plan comparison + per-model rates)
-- <https://commandcode.ai/docs/resources/usage-limits> (per-plan 5-hour / weekly caps)
+> Note: if the site enables per-token quota statistics (`DisplayTokenStatEnabled`), the two billing endpoints report **that API key's (token's)** quota and usage rather than the account totals — which is new-api's own behaviour.
 
-## Model pricing (the `commandcode` route)
+> ⚠️ Key resolution order: the provider's `apiKeyEnv` (DSH credential store) → same-named environment variable. This plugin no longer stores a separate quota key, and does not read the legacy config field.
 
-If your model route points at Command Code's Provider API (`provider: commandcode`, baseURL
-`https://api.commandcode.ai/provider/v1`), the price table has to know that provider — otherwise
-calls record **tokens only and a cost of 0** (so "Today's cost" reads ¥0). This fork ships a
-built-in **`commandcode` provider table (49 models)** sourced from the official model table, with
-`sourceUrl` / `checkedAt` on every entry.
+## Model pricing
 
-- The DeepSeek family uses the official **peak / off-peak** tiers: off-peak $0.15 / $0.60 / $0.003,
-  peak $0.30 / $1.20 (peak windows 01–04 and 06–10 UTC, Mon–Fri — the same windows DeepSeek itself uses).
-- Other models use the official flat rates; official `-50% / -98% / -99%` promo prices are recorded at
-  the discounted value with the list price noted.
-- Model ids follow the Provider API (e.g. `deepseek/deepseek-v4.1-flash`, `zai-org/GLM-5.2`); case and
-  separator differences are absorbed by canonical matching.
+This branch's price tables match upstream (including the built-in **`commandcode` provider table**, 49 models, each with `sourceUrl` / `checkedAt`). If your model route points at a **new-api gateway**, it usually keeps upstream model ids (such as `deepseek-v4.1-flash` or `deepseek/deepseek-v4.1-flash`) that the main table and canonical matching already cover; if the gateway renames models and “Today's cost” reads 0, add a price entry for that provider under **Settings → Cost → Extended price table** (same workflow as upstream).
 
-To add or change entries yourself, use **Settings → Cost → Extended price table**. **Sync official
-prices** only overwrites the DeepSeek main table; provider tables must be checked by hand.
+- The DeepSeek family uses the official **peak / off-peak** tiers: off-peak $0.15 / $0.60 / $0.003, peak $0.30 / $1.20 (peak windows 01–04 and 06–10 UTC, Mon–Fri — the same windows DeepSeek itself uses).
+- Other models use the official flat rates; official `-50% / -98% / -99%` promo prices are recorded at the discounted value with the list price noted.
+- **Sync official prices** only overwrites the DeepSeek main table; provider tables must be checked by hand.
 
-> After a price-table update, startup automatically re-costs historical buckets that have tokens but a
-> zero amount (billed at off-peak). To re-price history precisely at its real peak/off-peak instants,
-> toggling the **pricing currency** once triggers a full replay recompute.
+> After a price-table update, startup automatically re-costs historical buckets that have tokens but a zero amount (billed at off-peak). To re-price history precisely at its real peak/off-peak instants, toggling the **pricing currency** once triggers a full replay recompute.
 
 ## Relation to upstream
 
 - Upstream: [Han-1413141/dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) (MIT)
-- This repo is a modified fork; only the Go-quota card code changed (see the table above) — everything else inherits upstream;
-- When the upstream plugin updates, this fork's edits get overwritten — to rebase, re-apply the corresponding changes in this repo's `lib/index.js` / `lib/store.js` / `lib/client.js` onto the new upstream (see [CHANGELOG.md](CHANGELOG.md) for the itemized diff).
+- This repo is a modified fork; only the quota-card code changed (see the table above) — everything else inherits upstream;
+- When the upstream plugin updates, this fork's edits get overwritten — to rebase, re-apply the corresponding changes in this repo's `lib/index.js` / `lib/newapi.js` / `lib/store.js` / `lib/typert.host.js` / `lib/client.js` onto the new upstream (see [CHANGELOG.md](CHANGELOG.md) for the itemized diff).
 
 ## Development & verification
 
 ```sh
 node --check lib/index.js && node --check lib/pricing.js \
   && node --check lib/store.js && node --check lib/typert.host.js \
-  && node --check lib/client.js         # syntax checks
+  && node --check lib/client.js && node --check lib/newapi.js   # syntax checks
+npm test                                                       # typert manifest / contract check
 dsh --profile web --dump-config         # composition-tree check
 dsh --profile web --port 3099           # real startup (watch logs and the UI)
 ```
 
 ## License
 
-[MIT](LICENSE) © 2026 dsh-cost-meter contributors (GOAT fork © 2026)
+[MIT](LICENSE) © 2026 dsh-cost-meter contributors (new-api fork © 2026)

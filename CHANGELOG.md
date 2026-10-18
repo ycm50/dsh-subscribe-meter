@@ -1,17 +1,118 @@
 # Changelog
 
-本项目为 [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) v1.6.12 的 **Command Code GOAT 定制 fork**。上游逐条开发记录见上游仓库 `CHANGELOG.md`;本文件只记录本 fork 相对上游 v1.6.12 的改动。
+本项目为 [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) v1.6.12 的定制 fork。上游逐条开发记录见上游仓库 `CHANGELOG.md`;本文件只记录本 fork 相对上游 v1.6.12 的改动。
+
+> 分支说明:本仓库的额度卡按分支切换目标厂商 —— `cmdc-goat`(Command Code GOAT)、`oc-go`(OpenCode Go)、**`new-api`(new-api / one-api 系自建或中转网关,本分支)**。分支之间共享同一份账本(`$DSH_HOME/storages/cost-meter/ledger.json`),切换分支后建议在设置页重新确认额度源与主档位。
+
+## 1.7.0-newapi.4 (2026-10-18)
+
+### 新增:站点类型自动识别(one-api / new-api / sub2api),探测结果按 provider 持久化
+
+**背景**:one-api 与 new-api 是同一套计费接口(new-api 是 one-api 的延续,`/v1/dashboard/billing/*` 完全一致),而 sub2api 是另一套(`/v1/usage`,且 `/v1/dashboard/billing/*` 返回 `404 {"code":"PATH_NOT_SUPPORTED"}`)。原先只按 new-api 写死请求,遇到 sub2api 站点会一直报「未解析出总额/已用」。既然两者可以靠「计费端点是否 404」可靠区分,就不再为 one-api / sub2api 各开一个分支。
+
+**改动**:
+
+- `lib/newapi.js`:
+  - 新增 `detectGatewayKind()`:先试 `/v1/dashboard/billing/subscription`(200 且有 `hard_limit_usd` → `oneapi`),再试 `/v1/usage`(含 `mode`/`planName`/`quota`/`remaining` → `sub2api`),都不成立时把两次状态码一起报出(`newApiKindUnknown`)。
+  - 新增 `queryGatewayQuota()`:`kind` 已知就直接按它请求;若该路径 404(`UnsupportedPathError`)则自动重探测并返回新类型,由宿主覆盖保存;`kind` 为空时探测后查询。探测阶段拿到的响应体会复用,不会「探完再查」多打一次。
+  - 新增 `parseSub2apiUsage()`,覆盖三种返回形态:`mode=quota_limited`(`quota.limit/used` → 本月,`rate_limits` 的 `5h` → 滚动、`7d`/`1d` → 本周)、订阅套餐(`subscription.daily/weekly/monthly_usage_usd` ÷ 对应 `_limit_usd`)、钱包余额(用 `usage.total.cost` 反推已用)。
+  - `parseNewApiStatus()` 兼容老 one-api 的 `display_in_currency` 布尔(无 `quota_display_type` 时);计费端点带 `error` 字段(业务错误也走 200)时判为失败。
+  - `queryOneApi()` 在「按已存类型直接查」时自行补拉 subscription,避免因复用不到探测结果而误走 `/api/user/self` 甚至触发多余重探测。
+- `lib/index.js`:`queryGoQuota()` 读写 `goQuota.apiKind` / `apiKindProvider`,类型变化时回写活配置并 `ledger.flush()` 落盘;窗口清洗后附上 sub2api 的套餐名(`plan`);新增 `newApiKindUnknown` 中英文案。
+- `lib/store.js`:默认值 `apiKind` / `apiKindProvider`;`sanitizeConfig()` 只接受 `oneapi` / `sub2api` / 空串且两者必须成对;`applyConfigPatch()` 在 **providerId 变化时清空** 探测结果(同 provider 重选保留);非法值拒绝并给出 `goQuotaApiKind` 文案。
+- `lib/typert.host.js`:`config.goQuota.apiKind` / `apiKindProvider`;快照 `goQuota.plan`(optional,sub2api 套餐名)。
+- `lib/client.js`:`goQuota.plan` 追加到「更新于 …」行(如 `更新于 09:16 · 12 次调用 · Wallet`)。
+
+**不改的东西**:分支仍是 `new-api` 一个(不再新增 one-api / sub2api 分支);包名、账本目录、设置项结构不变;换 provider 后首次刷新会自动重探测,用户无需手动切换任何开关。
+
+**校验**:adapter 断言覆盖「探测即命中 billing(不探 usage)」「sub2api 探测顺序 billing→usage」「三种形态映射」「已存类型跳过探测」「已存类型 404 自愈」「两路皆不通时报状态码」「明文 HTTP 拒绝且不发请求」;宿主断言覆盖「探测结果写入 config 且只落盘一次」「缓存命中不再探测」「换 provider 清空类型」「同 provider 保留」「非法类型被拒」。
+
+## 1.7.0-newapi.3 (2026-10-18)
+
+### 修复:设置页已出额度,但左侧侧边栏图框为空
+
+**现象**:`设置 → 费用 → 额度` 已经显示「本月 0.00$ / 10.00$ 0.00%」,但主界面左侧(侧边栏额度图框 / 右下角 chip / 输入框横条)什么都没有。
+
+**根因**:账本是三个分支共用的,本机那份是 goat 分支留下的 `goQuota.main = "rolling"`;上一版归一化写的是 `oneOf(main, [...], 'monthly')`——`rolling` 是合法值,于是被**原样保留**。而 new-api 只有 `monthly` 一档,`rolling/weekly` 恒为 `null`,侧边栏那条路径是:
+
+```js
+const N = main === "weekly" || main === "monthly" ? main : "rolling"
+const x = ... && state.goQuota?.[N] !== null      // N=rolling → null → x=false → 整块不渲染
+```
+
+设置页之所以正常,是因为上一版已经改成「只渲染有数据的窗口行」,与 `main` 无关。
+
+**改动**:
+
+- `lib/store.js`:`sanitizeConfig()` 里把 `goQuota.main` **强制**归位为 `"monthly"`(不再 `oneOf` 回落),旧账本一加载即修正。
+- `lib/client.js`:新增 `goMainWindowOf(config, quota)`——按「配置值有数据就用它,否则依次回退 monthly → rolling → weekly」解析主档位,并替换全部 5 处按 `main` 取窗口的位置(侧边栏图框 `goBoxBody`、角落 chip/tooltip、输入框横条、设置页卡片、`Fa` 角落 chips)。即使配置没归位、或快照是旧的,也不会再落到空窗口上。
+- 侧边栏图框的窗口列表与 tooltip 也只列有数据的窗口,不再出现两行「—」。
+
+## 1.7.0-newapi.2 (2026-10-18)
+
+### 修复:provider 下拉为空(settings.get 不存在);插件改名 dsh-newapi-meter
+
+**现象**:装到 profile 并重启后,**设置 → 费用 → 额度** 的 provider 下拉是空的,额度卡提示「DSH「模型」设置里没有任何 provider」,而 **设置 → 模型** 里明明列着 `umapi` / `星空` / `卡扣AI管家` / `opencode-go`。
+
+**根因**:读 app.asar 内 `@deepseek-ai/dsh-settings` 源码确认,`SettingsForms` **没有 `get(ns)` 方法**(只有 `configure` / `describe` / `update` / `schema` / `prepareDocument`),我此前写的 `settings.get('llm-pi-ai')` 永远返回 `undefined`——而 `typeof settings?.get === 'function'` 守卫只是让它静默退化成空数组,所以既不报错也不出数。
+
+**改动**:
+
+- `lib/index.js`:新增 `readProviderTable()`,按三条路径依次读取 provider 表:
+  1. `settings.describe()`(主路径)——返回 `{ ns, value }[]`,`ns` 是 profile **entry id**(`llm-pi-ai`),`value` 是运行中的实时配置(源码 `describe()` 的 `entry.options.id` 即 ns);
+  2. `settings.get(ns)`(兼容个别实现);
+  3. `loader.entries()`(组合态配置兜底,与 dsh-compact-value 读组合同一来源)。
+- 区分两种空状态:读不到「模型」配置(`goQuotaProvidersUnreadable`,指向宿主接口问题)与配置里确实没有可用 provider(`goQuotaNoProviders`),面板提示因此能指向真正原因。
+- 新增测试覆盖:`test-host-wiring.mjs` 现在同时断言 `describe()` / `get()` / `loader` 三条读取路径,以及两条空状态文案。
+- **插件改名**:`dsh-CommandCode-meter` → **`dsh-newapi-meter`**(package.json、cordis.patch.yml、typert `package` 与全部 `typeSymbol`、client bundle 的 module id 与 localStorage 键、日志前缀与 UA、README/CHANGELOG 全文)。仅 `new-api` 分支改名,其余分支不变。账本目录仍是 `storages/cost-meter/`(按服务名,不随包名变),历史数据不受影响。
+
+**升级注意**:包名变了,profile 里旧的 `dsh-CommandCode-meter` 依赖不会自动消失,需要先移除再装新包(否则两条 loader 行都会尝试挂载):
+
+```sh
+pnpm dsh plugin --profile desktop remove dsh-CommandCode-meter
+pnpm dsh plugin --profile desktop add link:A:\Downloads\dsh-subscribe-meter
+```
+
+重启 `dsh web` 后,回到 **设置 → 费用 → 额度** 重新选一次 provider(配置里旧的 providerId 是按新包名独立存的)。
+
+## 1.7.0-newapi.1 (2026-10-18)
+
+### 新增:额度卡改为查询 new-api 站点的「额度 / 已用」,站点与 Key 取自 DSH「模型」设置里的 provider
+
+**动机**:GOAT 卡的接口是 Command Code 官方端点,查不了自建 / 中转的 new-api(one-api 系)网关余额。本分支把额度卡整块换成 new-api 额度查询,并复用「模型」设置里已配置好的 provider,不再让用户在本插件里重复填站点地址与 Key。
+
+**接口口径**(读 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 源码核对,2026-10):
+
+| 端点 | 认证 | 返回 | 口径 |
+| --- | --- | --- | --- |
+| `GET {base}/v1/dashboard/billing/subscription` | `Bearer sk-…` | `hard_limit_usd` | **总额度 = 剩余 + 已用**(源码 `quota = remainQuota + usedQuota`) |
+| `GET {base}/v1/dashboard/billing/usage` | `Bearer sk-…` | `total_usage` | **已用 × 100**(OpenAI 美分制,源码 `amount * 100`) |
+| `GET {base}/api/user/self` | `Bearer <系统访问令牌>` | `quota` / `used_quota` / `request_count` | 兜底路径:剩余 + 已用 + 累计调用次数 |
+| `GET {base}/api/status` | 公开 | `quota_display_type` | 展示单位(USD / CNY / TOKENS),仅用于给读数加标签 |
+
+两个计费端点同单位,故「已用 / 总额」的比值与百分比与展示单位无关;单位读不到时按 USD 显示。
+
+**改动**:
+
+- `lib/newapi.js`(新):站点地址规范化(去尾部 `/` 与 `/v1`)、`subscription` / `usage` / `/api/user/self` / `/api/status` 四个纯函数解析器、窗口归一化与查询编排。首选计费端点,失败回退管理端 `/api/user/self`;`cap ≤ 0`、字段缺失等一律按坏响应报错,**不把「读不到」伪造成 0%**。公网明文 HTTP 直接拒绝(环回 / 内网放行),请求不跟随重定向,Key 只会发往所选 provider 自己的主机。
+- `lib/index.js`:新增 `listModelProviders()`(读 `settings.get('llm-pi-ai').providers`,与「模型」界面同源)与 `resolveProviderKey()`(该 provider 的 `apiKeyEnv` → DSH 凭据库 → 同名环境变量);`queryGoQuota()` 改为按 `goQuota.providerId` 查询,结果映射到卡片窗口(`rolling/weekly` 恒为 null,`monthly` 承载额度池);快照新增 `modelProviders`(不含任何密钥值,只带 Key 是否已就绪);新增 8 条中英文案与 `__testNewApi` 测试导出。
+- `lib/typert.host.js`:`config.goQuota.providerId`;窗口 schema 增加 `unit` / `requests`;`state.modelProviders`(optional,旧快照不击穿)。
+- `lib/store.js`:`goQuota.providerId` 默认值与校验;`main` 归一化为 `monthly`(new-api 只有额度池一档);文案与注释更新。
+- `lib/client.js`:设置页「月度额度池」数字输入换成 **provider 下拉**(选项来自快照 `state.modelProviders`,显示名称 · 主机),手动 Key 输入换成 **Key 状态说明**(Key 已就绪 / 未配置 + 环境变量名);额度卡只渲染有数据的窗口行(不再出现两行「—」);数值文本按站点单位显示(USD 沿用 `$`,其余带单位名);累计调用次数附加在「更新于 …」后;中英文案由 GOAT 改为 new-api。
+- 覆盖测试(未随包提交):`lib/newapi.js` 解析器 / 查询 / 回退 / 软错误断言,以及宿主侧「provider 发现 → Key 解析 → 查询」链路断言,均通过。
+
+**配置方式**:设置 → 模型 里已有一个 new-api 站点的 provider(填好 `baseURL` 与该 provider 的 Key)→ 设置 → 费用 → 额度选它即可。Key 与模型请求共用同一把,不再单独填写。
 
 ## 1.6.12-goat.4 (2026-09-22)
 
 ### 修复:typert codec 形状在「0.1.5-rc.x / 0.1.7+」两代宿主间不兼容,插件 typert 贡献整份注册失败
 
-**现象**:在 `A:\Downloads\deepseek-harness` 源码检出(0.1.7-alpha.1)上启动 Web 后,页面「Failed to load plugins」显示 `dsh-CommandCode-meter: failed`,启动日志(`%USERPROFILE%\.dsh\logs\startup-*.log`)里:
+**现象**:在 `A:\Downloads\deepseek-harness` 源码检出(0.1.7-alpha.1)上启动 Web 后,页面「Failed to load plugins」显示 `dsh-newapi-meter: failed`,启动日志(`%USERPROFILE%\.dsh\logs\startup-*.log`)里:
 
 ```
 dsh: warning: 1 entry did not activate
 typert-loader (@deepseek-ai/dsh-typert-loader): AggregateError: typert-loader: 1 typert contributor(s) failed to register:
-  - typert-loader: dsh-CommandCode-meter invocation "dsh-CommandCode-meter#costMeter/getState" result codec has no create() factory
+  - typert-loader: dsh-newapi-meter invocation "dsh-newapi-meter#costMeter/getState" result codec has no create() factory
 ```
 
 插件本体能加载(账本读写正常),但 `lib/typert.host.js` 的手写清单在 `validateTypertManifest()` 入口被**整份拒绝**,`ctx.costMeter` 的 13 个 Remote 方法一个都没挂上;`lib/client.js` 里同名的 22 个 codec 也会在 `remote.$mount()` 时被拒——设置页与费用面板随之失效。

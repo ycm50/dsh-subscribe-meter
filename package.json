@@ -1,7 +1,7 @@
 {
-  "name": "dsh-CommandCode-meter",
-  "version": "1.6.12-goat.4",
-  "description": "DeepSeek Harness 会话费用统计插件(Command Code GOAT 定制版):本会话成本、当日费用、历史记录与官方价格同步,支持多厂商多模型价格计费(内置 90+ 模型价格目录与自动匹配)、Command Code GOAT 订阅额度查询(5 小时/周/月度池三档 已用/全部 + 进度条)、Coding Plan 订阅额度查询与显示、自定义 Provider 余额查询、峰谷计价时段显示与切换前弹窗/系统通知提醒,界面中英双语。Fork of dsh-cost-meter with the Go-quota card repointed to Command Code GOAT: 5h / weekly / monthly-pool quotas shown as used/total with progress bars.",
+  "name": "dsh-newapi-meter",
+  "version": "1.7.0-newapi.4",
+  "description": "DeepSeek Harness 会话费用统计插件(new-api 分支):本会话成本、当日费用、历史记录与官方价格同步,支持多厂商多模型价格计费(内置 90+ 模型价格目录与自动匹配)、网关站点额度查询(one-api / new-api / sub2api 自动识别,额度/已用/剩余 + 进度条,站点与 Key 取自 DSH「模型」设置里的 provider)、Coding Plan 订阅额度查询与显示、自定义 Provider 余额查询、峰谷计价时段显示与切换前弹窗/系统通知提醒,界面中英双语。Fork of dsh-cost-meter whose Go-quota card now reads the total/used quota of a self-hosted gateway (one-api / new-api / sub2api, auto-detected and persisted per provider) using the base URL and API key of a provider configured under Settings → Models.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -26,8 +26,8 @@
   },
   "dshhub": {
     "schemaVersion": 1,
-    "displayName": "dsh-CommandCode-meter (GOAT)",
-    "summary": "DeepSeek Harness 会话费用统计(Command Code GOAT 定制版):本会话费用、预算图框、官方余额、Command Code GOAT 订阅额度(5h/周/月 已用/全部+进度条)、Coding Plan 额度查询、历史记录,支持峰谷计价与官方价格一键同步。",
+    "displayName": "dsh-newapi-meter",
+    "summary": "DeepSeek Harness 会话费用统计(new-api 定制分支):本会话费用、预算图框、官方余额、new-api 站点额度(总额/已用/剩余 + 进度条,站点与 Key 取自 设置→模型 的 provider)、Coding Plan 额度查询、历史记录,支持峰谷计价与官方价格一键同步。",
     "categories": [
       "费用",
       "Web UI",
@@ -79,9 +79,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ycm50/dsh-CommandCode-meter.git"
+    "url": "git+https://github.com/ycm50/dsh-subscribe-meter.git"
   },
-  "homepage": "https://github.com/ycm50/dsh-CommandCode-meter#readme",
+  "homepage": "https://github.com/ycm50/dsh-subscribe-meter/tree/new-api#readme",
   "keywords": [
     "deepseek",
     "deepseek-harness",
