@@ -4,6 +4,23 @@
 
 > 分支说明:本仓库的额度卡按分支切换目标厂商 —— `cmdc-goat`(Command Code GOAT)、`oc-go`(OpenCode Go)、**`new-api`(new-api / one-api 系自建或中转网关,本分支)**。分支之间共享同一份账本(`$DSH_HOME/storages/cost-meter/ledger.json`),切换分支后建议在设置页重新确认额度源与主档位。
 
+## 1.7.0-newapi.5 (2026-10-25)
+
+### 新增:支持明文 HTTP(不再强制 HTTPS)
+
+**背景**:自建 one-api / new-api / sub2api 常常只跑 http(内网部署,或公网域名没配证书),此前公网明文 HTTP 被直接拒绝、额度卡彻底不可用;自定义 Provider 余额端点也硬性要求 https。
+
+**改动**:
+
+- `lib/newapi.js`:`queryGatewayQuota()` 不再对公网明文 HTTP 抛 `newApiInsecureBase`;改为**首次每主机警告一次**(新增 `warnPlaintextBase()`),随后照常带 Key 请求。`isInsecurePublicBase()` 保留,但语义收窄为「是否值得提示」(环回 / 内网不提示)。
+- `lib/custom-balance.js`:端点协议改为接受 `http:` 与 `https:`(其它协议仍拒绝);携带 `{{ENV}}` 凭据且走明文时,首次每主机警告一次(与 `allowedHosts` 警告同款取舍,不打断存量配置)。
+- `lib/index.js`:`newApiInsecureBase` 中英文案由「拒绝」改为「警告(仅此一次)」。
+- `README.md` / `README.en.md`:安全行同步为「http 与 https 都支持,公网明文仅警告一次」。
+
+**不改的东西**:重定向仍不跟随(`redirect: 'manual'`);Key 仍只发往所选 provider 自己的主机;`cap ≤ 0`、字段缺失等仍按坏响应报错(不伪造成 0%);环回 / 内网地址继续静默放行。
+
+**校验**:用临时探针(stub `fetch`,未入库)断言:公网 `http://` base 能完成查询且只警告一次;`https://` 行为与之前一致;`ftp:` 等其它协议仍被 `normalizeNewApiBaseUrl()` 拒绝;自定义余额 `http://` 端点能真正发出请求而不是抛错。
+
 ## 1.7.0-newapi.4 (2026-10-18)
 
 ### 新增:站点类型自动识别(one-api / new-api / sub2api),探测结果按 provider 持久化

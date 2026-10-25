@@ -46,7 +46,7 @@ This plugin is a customized fork of [dsh-cost-meter](https://github.com/Han-1413
 | Quota source | **Taken from DSH Settings → Models**: pick a provider in the Settings dropdown; its `baseURL` is the site address and its `apiKeyEnv` is the credential name (DSH credential store → same-named environment variable). No separate key field |
 | Card display | “Used / total + percent + progress bar + remaining”; the unit follows the site's display type (USD / CNY / TOKENS); total call count is appended when `/api/user/self` is readable |
 | Windows | new-api has a single site quota pool, so only that window renders (rolling 5h / weekly are always empty and no longer show as two “—” rows; the primary window is fixed to `monthly`) |
-| Safety | Plaintext HTTP on public hosts is refused (loopback/LAN allowed); redirects are not followed; the key only goes to the selected provider's own host; `cap ≤ 0` and similar are reported as bad responses instead of a fake 0% |
+| Safety | **Both http and https are supported** (self-hosted gateways often have no TLS); plaintext HTTP on a public host warns once and then proceeds — it is no longer refused; redirects are not followed; the key only goes to the selected provider's own host; `cap ≤ 0` and similar are reported as bad responses instead of a fake 0% |
 
 ## Installation
 

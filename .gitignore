@@ -21,3 +21,6 @@ Thumbs.db
 # DSH local storage (never commit keys or ledgers)
 storages/
 *.credential
+
+# 非项目的探测/测试脚本（参见用户全局约定）
+tmpscripts/
