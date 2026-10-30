@@ -1,7 +1,7 @@
 {
-  "name": "dsh-CommandCode-meter",
+  "name": "dsh-opendesign-go-meter",
   "version": "1.6.12-goat.4",
-  "description": "DeepSeek Harness 会话费用统计插件(Command Code GOAT 定制版):本会话成本、当日费用、历史记录与官方价格同步,支持多厂商多模型价格计费(内置 90+ 模型价格目录与自动匹配)、Command Code GOAT 订阅额度查询(5 小时/周/月度池三档 已用/全部 + 进度条)、Coding Plan 订阅额度查询与显示、自定义 Provider 余额查询、峰谷计价时段显示与切换前弹窗/系统通知提醒,界面中英双语。Fork of dsh-cost-meter with the Go-quota card repointed to Command Code GOAT: 5h / weekly / monthly-pool quotas shown as used/total with progress bars.",
+  "description": "DeepSeek Harness 会话费用统计插件(OpenDesign Cloud 定制版):本会话成本、当日费用、历史记录与官方价格同步,支持多厂商多模型价格计费(内置 39 个 OpenDesign 模型价格目录与自动匹配)、OpenDesign Cloud 订阅额度查询(5 小时 / 7 天两档 已用/全部 + 进度条)、Coding Plan 订阅额度查询与显示、自定义 Provider 余额查询、峰谷计价时段显示与切换前弹窗/系统通知提醒,界面中英双语。Fork of dsh-cost-meter with the Go-quota card repointed to OpenDesign Cloud: rolling-5h / 7-day quotas from the official Vela funding-check endpoint, shown as used/total with progress bars.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -26,8 +26,8 @@
   },
   "dshhub": {
     "schemaVersion": 1,
-    "displayName": "dsh-CommandCode-meter (GOAT)",
-    "summary": "DeepSeek Harness 会话费用统计(Command Code GOAT 定制版):本会话费用、预算图框、官方余额、Command Code GOAT 订阅额度(5h/周/月 已用/全部+进度条)、Coding Plan 额度查询、历史记录,支持峰谷计价与官方价格一键同步。",
+    "displayName": "dsh-opendesign-go-meter",
+    "summary": "DeepSeek Harness 会话费用统计(OpenDesign Cloud 定制版):本会话费用、预算图框、官方余额、OpenDesign 订阅额度(5 小时 / 7 天 已用/全部+进度条)、Coding Plan 额度查询、历史记录,支持峰谷计价与官方价格一键同步。",
     "categories": [
       "费用",
       "Web UI",
@@ -62,7 +62,7 @@
         "https://api.moonshot.cn",
         "https://openrouter.ai",
         "https://api.siliconflow.cn",
-        "https://api.commandcode.ai",
+        "https://amr-api.open-design.ai",
         "https://ax.ac.sugon.com"
       ]
     }
@@ -79,9 +79,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ycm50/dsh-CommandCode-meter.git"
+    "url": "git+https://github.com/ycm50/dsh-opendesign-go-meter.git"
   },
-  "homepage": "https://github.com/ycm50/dsh-CommandCode-meter#readme",
+  "homepage": "https://github.com/ycm50/dsh-opendesign-go-meter#readme",
   "keywords": [
     "deepseek",
     "deepseek-harness",
@@ -91,8 +91,8 @@
     "cost",
     "usage",
     "billing",
-    "commandcode",
-    "goat",
+    "opendesign",
+    "vela",
     "quota",
     "i18n",
     "bilingual",

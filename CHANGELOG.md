@@ -1,17 +1,81 @@
 # Changelog
 
-本项目为 [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) v1.6.12 的 **Command Code GOAT 定制 fork**。上游逐条开发记录见上游仓库 `CHANGELOG.md`;本文件只记录本 fork 相对上游 v1.6.12 的改动。
+本项目为 [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) v1.6.12 的 **OpenDesign Cloud 定制 fork**(分支 `od-go`)。上游逐条开发记录见上游仓库 `CHANGELOG.md`;本文件只记录本 fork 相对上游 v1.6.12 的改动。
+
+> 历史说明:本仓库早期是 Command Code GOAT 版(分支 `cmdc-goat`,版本号 `1.6.12-goat.N`)。`od-go` 分支把 Go 额度卡整体换成 OpenDesign Cloud,并**移除**全部 Command Code / OpenCode Go 端点与文案;下方 goat.N 的条目是那段历史的原始记录,保留仅作溯源,所述端点与配置在当前分支已不存在。
+
+## 1.6.12-od.2 (2026-10-30)
+
+### 变更:窗口按美元展示 + 内置 Vela 登录入口
+
+**额度数字**:此前直接透传接口的 credits(50000 / 150000),面板显示成 50000/150000,与官方文档口径($10 / $30)不一致。
+
+根因是两套 credits 单位并存:
+- 钱包余额:`billing/summary` 的 `creditsPerUsd = 10000`(10000 credits = $1);
+- Design Plan 窗口:Go 的 5 小时窗 50000、7 天窗 150000,官方文档明写「5 小时 $10 / 7 天 $30」→ **5000 credits = $1**。
+两套差 2 倍,恰是 Design Plan 倍率的倒数关系。
+
+**改动**:
+- `coding-plans.js`:新增 `OPENDESIGN_WINDOW_CREDITS_PER_USD = 5000`(窗口),保留 `OPENDESIGN_CREDITS_PER_USD = 10000`(钱包);新增 `parseVelaLoginOutput()` / `velaConfigPath()`。
+- `index.js`:窗口 `used` / `cap` 按 5000 credits = $1 折算,面板显示 **`$10 / $30`**;新增 `resolveVelaCli()` 与三个 RPC(`getLoginState` / `startVelaLogin` / `cancelVelaLogin`),内置设备登录入口。
+- `client.js`:额度卡片新增登录区块(状态行 + 登录/取消按钮 + 验证码 + 打开授权页),中英双语文案;新增 `lg` loginState codec 与三个 invocation。
+- `typert.host.js`:`loginStateSchema` + `_loginState$codec` + 三个 invocation 与方法文档(host 面 13 → 16)。
+- README / README.en:额度表改为美元口径,新增「登录:插件内置登录入口」一节。
+
+**CLI 定位踩坑(实测)**:Windows 上后台 `spawn('npx.cmd', ..., {shell:true})` 会卡住——既不输出也不退出。改为按 `PATH → npx 缓存(直接跑 vela.cjs)→ npx` 三级定位,实测从卡死变为 **4 秒出激活 URL**。
+
+**验证**:`npm test` 通过(host 16 invocation / client 25 codec);真实凭据跑通,窗口返回 `5h used=1.58 cap=10`、`7d used=1.58 cap=30`(即 $1.58 / $10、$1.58 / $30);登录流程在沙箱 HOME 下 5 秒内拿到激活 URL 与 6 位验证码。
+
+## 1.6.12-od.1 (2026-10-30)
+
+### 变更:Go 额度卡由 Command Code GOAT 换成 OpenDesign Cloud
+
+**背景**:模型路由已改指向 OpenDesign Cloud(桌面端 / Vela CLI / `https://amr-link.open-design.ai/v1`),旧卡片查的 `api.commandcode.ai/alpha/billing/credits` 与本账号无关。
+
+**接口**(2026-10-30 用真实账号实测):
+
+```
+GET https://amr-api.open-design.ai/api/v1/workspaces/current          → { workspaceId, personalMembershipTier }
+GET https://amr-api.open-design.ai/api/v1/workspaces/{ws}/billing/funding-check[?modelId=]
+    Authorization: Bearer <Vela controlKey>
+```
+
+返回 `{ balanceUsd, modelCovered, funding, fundingCheck, codingPlan: { tier, eligible, windows[] } }`,其中每个 window 为
+`{ policyId, durationSeconds, resetMode, usedCredits, limitCredits, remainingCredits, windowStart, resetsAt }`。
+
+**关键事实**:
+
+- `durationSeconds` **18000 = 滚动 5 小时**、**604800 = 7 天**;仅 Go 同时有这两档,Plus/Pro/Max 只有 7 天档。
+- 单位是 **Design Plan credits**,`1 USD = 10000 credits`(同域 `/api/v1/billing/summary` 的 `creditsPerUsd` 可交叉验证)。
+- 官方文档「Go 5 小时 $10 / 7 天 $30」是**模型用量价值**;0.5× 倍率下折合 50000 / 150000 credits,与接口一致,面板按接口原值展示、不反推。
+- OpenDesign **没有月度滚动窗**,月度上限体现在 Design Plan 总额,故「月」档整体移除。
+
+**认证**:额度接口认 **Vela CLI 登录态 `controlKey`**,不是 `sk-*` 推理 Key(实测 `sk-*` 打过去一律 `401 {"error":"unauthenticated"}`)。登录态由 `npx @powerformer/vela-cli login` 写入 `~/.amr/config.json`。
+
+**改动**:
+
+- `lib/coding-plans.js`:新增 `opendesign` adapter(`credentialEnvs: ['VELA_CONTROL_KEY']`)、`OPENDESIGN_PLANS` / `OPENDESIGN_CREDITS_PER_USD` / `OPENDESIGN_API_ORIGIN`、纯函数 `parseOpenDesignFunding()`、两步查询 `queryOpenDesignQuota()`、登录态读取 `readVelaControlKey()`;删除 `parseCommandCodeCredits` 与 `COMMAND_CODE_PLANS`。
+- `lib/index.js`:额度查询改为 OpenDesign;凭据链为 **DSH 凭据库 `VELA_CONTROL_KEY` → 环境变量 → `~/.amr/config.json`**;快照新增 `tier` / `balanceUsd` / `creditsPerUsd`;中英文案全部替换。
+- `lib/client.js`:主档位与右下角 chip 由三档(`rolling/weekly/monthly`)缩为两档(`rolling/weekly`);删除「月度额度池」输入项与 `poolTooSmall` 警告,改为 `goQuotaTierNote`(显示套餐档位与钱包余额);Coding Plan 列表里的 provider id 改为 `opendesign`。
+- `lib/pricing.js`:`commandcode` provider 价格表替换为 **`opendesign` 39 个模型目录价**,来源 `GET /api/v1/public/model-prices`(含 cacheRead)。
+- `lib/store.js` / `lib/typert.host.js`:`goQuota.main` 枚举缩为 `rolling|weekly`;密钥目标 `goQuota` → `VELA_CONTROL_KEY`;旧的 `monthlyPool` 字段保留但恒为 null(兼容旧账本)。
+- `lib/plan-billing.js`:`commandcode` → `opendesign`。
+- `package.json`:包名 `dsh-opendesign-go-meter`,network 权限 `api.commandcode.ai` → `amr-api.open-design.ai`,描述与关键词同步。
+- `docs/provider-pricing.json`:重新生成,含 `opendesign` 39 个模型。
+- `README.md` / `README.en.md` / `cordis.patch.yml`:全部改写为 OpenDesign 版。
+
+**验证**:`npm test`(verify-typert)通过(host 面 13 个 invocation、client 面 22 个 strict codec 双键、exports 契约);用真实 `~/.amr/config.json` 跑通两步查询,得到 `5h 8.8% / 7d 2.9%`;错误路径(missing key / 401)均返回 `soft` 错误。
 
 ## 1.6.12-goat.4 (2026-09-22)
 
 ### 修复:typert codec 形状在「0.1.5-rc.x / 0.1.7+」两代宿主间不兼容,插件 typert 贡献整份注册失败
 
-**现象**:在 `A:\Downloads\deepseek-harness` 源码检出(0.1.7-alpha.1)上启动 Web 后,页面「Failed to load plugins」显示 `dsh-CommandCode-meter: failed`,启动日志(`%USERPROFILE%\.dsh\logs\startup-*.log`)里:
+**现象**:在 `A:\Downloads\deepseek-harness` 源码检出(0.1.7-alpha.1)上启动 Web 后,页面「Failed to load plugins」显示 `dsh-opendesign-go-meter: failed`,启动日志(`%USERPROFILE%\.dsh\logs\startup-*.log`)里:
 
 ```
 dsh: warning: 1 entry did not activate
 typert-loader (@deepseek-ai/dsh-typert-loader): AggregateError: typert-loader: 1 typert contributor(s) failed to register:
-  - typert-loader: dsh-CommandCode-meter invocation "dsh-CommandCode-meter#costMeter/getState" result codec has no create() factory
+  - typert-loader: dsh-opendesign-go-meter invocation "dsh-opendesign-go-meter#costMeter/getState" result codec has no create() factory
 ```
 
 插件本体能加载(账本读写正常),但 `lib/typert.host.js` 的手写清单在 `validateTypertManifest()` 入口被**整份拒绝**,`ctx.costMeter` 的 13 个 Remote 方法一个都没挂上;`lib/client.js` 里同名的 22 个 codec 也会在 `remote.$mount()` 时被拒——设置页与费用面板随之失效。
@@ -33,8 +97,8 @@ typert-loader (@deepseek-ai/dsh-typert-loader): AggregateError: typert-loader: 1
 - `package.json`:`test` 改为 `node scripts/verify-typert.mjs`(不再依赖未随包安装的 `tsx`);删掉指向不存在文件的 `build` 脚本(本包 `lib/` 即交付产物,无编译步骤),新增 `prepublishOnly` 在发布前跑同一校验。
 
 **部署**:DSH 加载的是 profile 里的**已安装副本**,改本仓库不会自动生效,需刷新副本后重启,例如
-`pnpm dsh plugin --profile web add A:\Downloads\dsh-CommandCode-meter`(该命令把参数原样转发给 profile 目录内的 pnpm;注意它会把 profile 依赖从 `github:ycm50/dsh-commandCode-meter` 改写成本地路径,若要保持 git 依赖,请先提交并推送本仓库,再 `pnpm dsh plugin --profile web add dsh-CommandCode-meter`)。校验副本是否已修好:
-`node scripts/verify-typert.mjs --plugin "%USERPROFILE%\.dsh\profiles\web\node_modules\dsh-CommandCode-meter"`。
+`pnpm dsh plugin --profile web add A:\Downloads\dsh-opendesign-go-meter`(该命令把参数原样转发给 profile 目录内的 pnpm;注意它会把 profile 依赖从 `github:ycm50/dsh-commandCode-meter` 改写成本地路径,若要保持 git 依赖,请先提交并推送本仓库,再 `pnpm dsh plugin --profile web add dsh-opendesign-go-meter`)。校验副本是否已修好:
+`node scripts/verify-typert.mjs --plugin "%USERPROFILE%\.dsh\profiles\web\node_modules\dsh-opendesign-go-meter"`。
 
 ## 1.6.12-goat.3 (2026-09-11)
 

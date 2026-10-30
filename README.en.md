@@ -1,144 +1,139 @@
-# dsh-CommandCode-meter
+# dsh-opendesign-go-meter
 
 <div align="center">
 
-**DeepSeek Harness session cost tracking plugin · Command Code GOAT edition (bilingual UI)**
+**DeepSeek Harness session cost meter plugin · OpenDesign Cloud edition (bilingual UI)**
 
-A GOAT-customized fork of [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter). All upstream features (per-conversation cost · official balance · budget box · custom provider balance · history · peak/off-peak pricing · official price sync · coding-plan quotas · token heat grid, …) are unchanged — only the **OpenCode Go quota card was replaced with the Command Code GOAT subscription quota**.
+A custom fork of [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) that keeps every upstream feature (session cost, official balance, budget box, custom-provider balance, history, peak/off-peak pricing, official price sync, coding-plan quotas, token heatmap, …) and swaps the Go quota card for **OpenDesign Cloud subscription quota**.
 
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![upstream](https://img.shields.io/badge/upstream-Han--1413141%2Fdsh--cost--meter-4176E6)](https://github.com/Han-1413141/dsh-cost-meter)
 
-English | [中文](README.md)
+**English** | [中文](README.md)
 
 </div>
 
 ---
 
-## Upstream & acknowledgements
+## Upstream and credits
 
-This plugin is a customized fork of [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter). The upstream `dsh-cost-meter` is a feature-complete **DeepSeek Harness session cost tracking plugin**: per-conversation cost, official balance query, budget box, custom provider balance, history, peak/off-peak pricing, official price sync, Coding Plan quotas, token heat grid, and more — with a built-in 90+ model price catalog and auto-matching, in a bilingual (zh/en) UI. It is maintained by [Han-1413141](https://github.com/Han-1413141) under the [MIT](LICENSE) license.
+This plugin is a custom fork of [dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter), a complete **DeepSeek Harness session cost meter**: session cost, official balance, budget box, custom-provider balance, history, peak/off-peak pricing, official price sync, coding-plan quotas, token heatmap, a 90+ model price catalog with automatic matching, and a bilingual UI, maintained by [Han-1413141](https://github.com/Han-1413141) under [MIT](LICENSE).
 
-**Why this fork**: we use the **Command Code GOAT** subscription (rather than OpenCode Go) day to day. The upstream Go-quota card only talks to `opencode.ai/zen/go/v1/usage`, so it cannot query Command Code subscription quotas. This repo therefore forks the project and replaces the Go-quota card with the official Command Code endpoint `GET https://api.commandcode.ai/alpha/billing/credits` (Bearer auth), adding 5-hour / weekly / monthly-pool “used / total + progress bar” displays; credential resolution was also switched to the DSH credential store / `COMMANDCODE_API_KEY` environment variable. Everything except the Go-quota card code — features, structure, docs — is inherited from upstream unchanged.
+**Why fork**: we route models through **OpenDesign Cloud** (desktop app / Vela CLI / `https://amr-link.open-design.ai/v1`). Upstream's Go quota card only talks to `opencode.ai/zen/go/v1/usage` and cannot read OpenDesign quotas. This fork replaces that card with the official OpenDesign quota endpoint and ships OpenDesign's 39-model price catalog.
 
-**Acknowledgements**: thanks to [Han-1413141](https://github.com/Han-1413141) and all contributors of upstream dsh-cost-meter — the vast majority of this project's code and design comes from upstream; we only layered a targeted customization on top. Upstream repo: [Han-1413141/dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) (MIT).
+**Credits**: the vast majority of this code and design comes from upstream dsh-cost-meter and its contributors — [Han-1413141/dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) (MIT). Our changes are the OpenDesign-specific layer described below.
 
 ---
 
-## What changed in this fork
+## What this fork changes
 
-| Change | Details |
+| Change | Detail |
 |---|---|
-| Quota endpoint | Swapped from `opencode.ai/zen/go/v1/usage` to the **official Command Code endpoint** `GET https://api.commandcode.ai/alpha/billing/credits` (Bearer auth) |
-| Three windows | Rolling **5h / weekly / monthly pool** all show “used / total” numbers + individual progress bars (upstream only showed the main window's percent) |
-| Monthly pool math | GOAT monthly pool is **$70 of usage**; `used = pool − monthlyCredits`, `cap = pool`. The pool is **configurable** (Settings → “Monthly credit pool”, default $70), because the official `monthlyCredits` value is the remaining allowance of the **model tier you are currently billing against** — per-model allowances differ (see the table below) |
-| Sidebar | GOAT box renders the same three-window used/total + progress-bar style as the Settings page; the **budget box lost its budget progress bar** (budget, used %, today's cost & share, used/limit remain) |
-| Credentials | Key resolution is now **DSH credential store `COMMANDCODE_API_KEY`** → env `COMMANDCODE_API_KEY` → legacy config `goQuota.apiKey` (the opencode login-state auto-detect was removed) |
-| Copy | All “OpenCode Go” strings → “Command Code GOAT”; new `goQuotaUsedOf` (used/total) i18n key (zh/en) |
+| Quota endpoint | **OpenDesign Cloud official quota API** in two steps: `GET https://amr-api.open-design.ai/api/v1/workspaces/current` for the workspaceId, then `GET /api/v1/workspaces/{ws}/billing/funding-check` for `codingPlan.windows[]` |
+| Two windows | OpenDesign has only **rolling 5 hours (18000s)** and **7 days (604800s)**; both render as "used / total + progress bar". OpenDesign has **no monthly rolling window**, so the old monthly slot is gone entirely |
+| Units | The API returns **Design Plan credits**, `1 USD = 10000 credits`; values are shown as returned, never reverse-derived |
+| Plan tier | The card also shows the current tier and wallet balance, both taken from the same funding-check response |
+| Credentials | Uses the **Vela CLI sign-in `controlKey`** (run `npx @powerformer/vela-cli login` once; it writes `~/.amr/config.json`), not an `sk-*` inference key. Resolution order: DSH credential store `VELA_CONTROL_KEY` → env `VELA_CONTROL_KEY` → `~/.amr/config.json` |
+| Price table | Ships an **`opendesign` provider with 39 models**, from the public `GET /api/v1/public/model-prices` endpoint (fetched 2026-10-30, cacheRead included) |
+| Copy | All "Command Code GOAT" text is now "OpenDesign Cloud"; adds a `goQuotaTierNote` string (zh/en) |
 
-## Installation
+## Install
 
-> Requirements: Node.js ≥ 20 + DeepSeek Harness (a version with the `dsh plugin` command).
+> Requires Node.js ≥ 20 and DeepSeek Harness with the `dsh plugin` command.
 
 ```sh
-# Option 1: local directory (after cloning or extracting)
-dsh plugin --profile web add link:./dsh-CommandCode-meter
+# Local directory
+dsh plugin --profile web add link:./dsh-opendesign-go-meter
 
-# Option 2: git URL (once the repo is published)
-dsh plugin --profile web add github:ycm50/dsh-CommandCode-meter
+# Git URL
+dsh plugin --profile web add github:ycm50/dsh-opendesign-go-meter
 
-# Option 3: dshmarket (if submitted to the marketplace)
-dsh plugin --profile web add dsh-CommandCode-meter
+# dshmarket (if published there)
+dsh plugin --profile web add dsh-opendesign-go-meter
 ```
 
-After installing, **restart** `dsh web` (plugin rows, the Typert manifest and the client bundle are all scanned at startup):
+Restart `dsh web` afterwards:
 
 ```sh
 dsh web
 ```
 
-> Note: `lib/` **is** the shipped artifact — there is no compile step (`package.json` no longer defines `build`; `files` only includes `lib`, `cordis.patch.yml`, `docs/provider-pricing.json`). For development, `npm test` (= `scripts/verify-typert.mjs`, not shipped) runs the real `validateTypertManifest()` from every `@deepseek-ai/dsh-typert-loader` generation it can locate, and checks the codec keys in `lib/client.js` plus the `exports` packaging contract. The plugin does not need these files at runtime.
+> `lib/` is the shipped artifact — there is no build step (`package.json` has no `build`; `files` lists only `lib`, `cordis.patch.yml` and `docs/provider-pricing.json`). Use `npm test` (= `scripts/verify-typert.mjs`) during development.
 
-> Compatibility: every strict codec in `lib/typert.host.js` / `lib/client.js` must carry **both** `schema: <zod v4>` and `create: () => <zod>` — the 0.1.5-rc.x host generation only reads `schema`, 0.1.7+ only reads `create`. Dropping either key makes that generation reject the whole typert contribution (all Remote methods gone; settings page and cost panel silently break). After editing `lib/`, run `npm test` and refresh the installed copy in the profile as described above.
+> Compatibility: the strict codecs in `lib/typert.host.js` and `lib/client.js` must carry **both** `schema: <zod v4>` and `create: () => <zod>` — the 0.1.5-rc.x host only reads `schema` while 0.1.7+ only reads `create`. Missing either key makes the whole typert contribution fail to register on that host generation (all remote methods gone, settings page and cost panel dead). Run `npm test` after editing `lib/`.
 
-## Configuring COMMANDCODE_API_KEY
+## Sign in: built-in login entry
 
-Enter the key in **Settings → Cost → Quota (GOAT card) → API key input** (write-only, never echoed; stored in the DSH credential store), or set `COMMANDCODE_API_KEY` in the DSH credential vault / environment beforehand. Resolution order:
+Quota queries use the **Vela sign-in**, not an API key. The plugin ships a **built-in login entry** — no terminal needed:
 
-1. DSH credential store (the Settings input saves here too)
-2. Environment variable `COMMANDCODE_API_KEY`
-3. Legacy config `goQuota.apiKey` (migration only)
+1. Open **Settings → Cost → OpenDesign subscription quota** and click "Sign in to OpenDesign";
+2. The card shows a 6-character code and an "Open approval page" button;
+3. Confirm the code in the browser — the plugin detects completion and refreshes the quota immediately.
 
-> ⚠️ The monthly pool is no longer a hardcoded constant: the $70 default comes from `COMMAND_CODE_PLANS.goat.monthlyCredits` in [lib/coding-plans.js](lib/coding-plans.js) and can be overridden in **Settings → Cost → Quota (GOAT card) → Monthly credit pool**. The endpoint is only contacted after you explicitly enable the GOAT quota.
+Under the hood it launches the official CLI's `login` subcommand (device authorization); the CLI itself writes credentials to `~/.amr/config.json`. CLI resolution order:
 
-## Verified GOAT pricing (from the official docs)
+1. `vela` on `PATH` (if you installed the CLI yourself);
+2. the npx cache copy of `@powerformer/vela-cli` (`%LOCALAPPDATA%/npm-cache/_npx/*`, run directly, no network);
+3. only if neither exists, fall back to `npx --yes @powerformer/vela-cli login` (needs network the first time).
 
-| Item | Value |
-|---|---|
-| Plan price | **$10 / month** |
-| Monthly credits | **$70 of usage** (a 7× multiplier) |
-| Rolling 5-hour cap | **$14** (opens on the first request of the window, not a fixed clock) |
-| Weekly cap | **$35** |
+> Signing in from a terminal works too and is equivalent:
+> ```sh
+> npx @powerformer/vela-cli login
+> ```
 
-> The 5-hour and weekly caps come straight from the API's `windowLimits.fiveHour / weekly` `used`/`cap` fields and are taken as-is; the “Monthly credit pool” setting does not affect them.
+The plugin then reads `profiles.prod.controlKey` from `~/.amr/config.json` automatically. The same value can live in the DSH credential store or the `VELA_CONTROL_KEY` environment variable (handy for CI or multiple machines).
 
-**Per-model monthly allowances differ** (official model table): $70 (GLM-5.2 / GPT-5.6 Sol / Tencent Hy3), $60 (DeepSeek V4 Flash family / Kimi K2.7 Code), $47 (MiniMax M3), $40 (GLM-5.3 Flash / Gemini 3.8 Flash), $33 (Qwen 3.7 family), $30 (MiMo V2.5), $20 (other new models). The API's `monthlyCredits` is the remaining allowance of the **model you are currently billing against**, so `used = pool − remaining` only holds when the pool is that same tier's allowance. That is why the pool is a setting: blank = GOAT default $70; switch your main model to DeepSeek V4 Flash and set `60`. If the pool is set too small (remaining > pool) the panel warns instead of reporting inflated usage.
+> ⚠️ There is deliberately **no** manual key field in Settings: a controlKey outranks an API key (it can read the whole billing ledger and workspace), so it should not be pasted into a text box. To configure it from Settings, store `VELA_CONTROL_KEY` in the DSH credential store instead.
 
-**Other plans** (set the corresponding value in “Monthly credit pool” when you switch):
+## Quota semantics (measured)
 
-| Plan | Price/mo | Monthly credits | 5-hour cap | Weekly cap |
-|---|---|---|---|---|
-| Go | $1 | $10 | $3 | $6 |
-| **GOAT** | **$10** | **$70** | **$14** | **$35** |
-| Pro | $20 | $80 | $16 | $40 |
-| Max 10× | $100 | $150 | $45 | $90 |
-| Max 20× | $200 | $300 | $90 | $180 |
-| Team Pro | $40 | $40 | $12 | $24 |
+Go is $10/month; the docs say "5 hours $10 / 7 days $30", but those are **model-usage dollars**. The API returns Design Plan credits (1 USD = 10000 credits), so the real numbers are:
 
-These values live in `COMMAND_CODE_PLANS` in [lib/coding-plans.js](lib/coding-plans.js), sourced from three official pages (fetched 2026-09):
+| Window | API limitCredits | Shown in the panel | Model usage at 0.5× |
+|---|---|---|---|
+| Rolling 5 hours (18000s) | 50000 | **$10** | $10 |
+| 7 days (604800s) | 150000 | **$30** | $30 |
 
-- <https://commandcode.ai/docs/plans/goat> (GOAT: $10/mo → $70, the 7× multiplier)
-- <https://commandcode.ai/docs/resources/pricing-limits> (full plan comparison + per-model rates)
-- <https://commandcode.ai/docs/resources/usage-limits> (per-plan 5-hour / weekly caps)
+> The panel shows the official documentation figures **$10 / $30**, converted at **5000 credits = $1** (50000/10 = 150000/30).
+> This is a different unit from the wallet balance, which is **10000 credits = $1** (see `creditsPerUsd` in `billing/summary`).
+> The 2× gap is exactly the reciprocal of the Design Plan multiplier.
 
-## Model pricing (the `commandcode` route)
+Plans (official `/model-credits` page):
 
-If your model route points at Command Code's Provider API (`provider: commandcode`, baseURL
-`https://api.commandcode.ai/provider/v1`), the price table has to know that provider — otherwise
-calls record **tokens only and a cost of 0** (so "Today's cost" reads ¥0). This fork ships a
-built-in **`commandcode` provider table (49 models)** sourced from the official model table, with
-`sourceUrl` / `checkedAt` on every entry.
+| Plan | Price | Design Plan monthly | Plan-model credits | 5-hour | 7-day |
+|---|---|---|---|---|---|
+| **Go** | **$10** | $120 | $0 | **$10** | **$30** |
+| Plus | $20 | $160 | $20 | — | $40 |
+| Pro | $100 | $360 | $120 | — | $90 |
+| Max | $200 | $600 | $300 | — | $150 |
 
-- The DeepSeek family uses the official **peak / off-peak** tiers: off-peak $0.15 / $0.60 / $0.003,
-  peak $0.30 / $1.20 (peak windows 01–04 and 06–10 UTC, Mon–Fri — the same windows DeepSeek itself uses).
-- Other models use the official flat rates; official `-50% / -98% / -99%` promo prices are recorded at
-  the discounted value with the list price noted.
-- Model ids follow the Provider API (e.g. `deepseek/deepseek-v4.1-flash`, `zai-org/GLM-5.2`); case and
-  separator differences are absorbed by canonical matching.
+> Only Go has both a 5-hour and a 7-day window; Plus / Pro / Max only have the 7-day window, and the card automatically shows a single row on those accounts.
 
-To add or change entries yourself, use **Settings → Cost → Extended price table**. **Sync official
-prices** only overwrites the DeepSeek main table; provider tables must be checked by hand.
+These values live in `OPENDESIGN_PLANS` in [lib/coding-plans.js](lib/coding-plans.js), sourced from the official pages (re-checked 2026-10):
 
-> After a price-table update, startup automatically re-costs historical buckets that have tokens but a
-> zero amount (billed at off-peak). To re-price history precisely at its real peak/off-peak instants,
-> toggling the **pricing currency** once triggers a full replay recompute.
+- <https://open-design.ai/model-credits/>
+- <https://open-design.ai/help/billing/>
 
-## Relation to upstream
+## Model pricing (the `opendesign` route)
 
-- Upstream: [Han-1413141/dsh-cost-meter](https://github.com/Han-1413141/dsh-cost-meter) (MIT)
-- This repo is a modified fork; only the Go-quota card code changed (see the table above) — everything else inherits upstream;
-- When the upstream plugin updates, this fork's edits get overwritten — to rebase, re-apply the corresponding changes in this repo's `lib/index.js` / `lib/store.js` / `lib/client.js` onto the new upstream (see [CHANGELOG.md](CHANGELOG.md) for the itemized diff).
+If models are routed to OpenDesign's Provider API (`provider: open-design`, baseURL
+`https://amr-link.open-design.ai/v1`), the price table must know that provider, otherwise
+calls record tokens but cost stays 0 ("today's cost" shows ¥0). This fork ships an
+**`opendesign` provider table with 39 models** from the public
+`/api/v1/public/model-prices` endpoint, each entry carrying `sourceUrl` / `checkedAt`.
 
-## Development & verification
+- All entries are catalog `flat` prices per 1M tokens (cacheRead included).
+- Model ids use the Provider API spelling (`deepseek-v4.1-flash`, `glm-5.3-flash`, `kimi-k2.7-code`); case and separator differences are absorbed by normalized matching.
+- This is the **pay-as-you-go catalog price** and is a different scale from Design Plan credits: the former converts tokens into USD-equivalents, the latter is the subscription allowance itself.
 
-```sh
-node --check lib/index.js && node --check lib/pricing.js \
-  && node --check lib/store.js && node --check lib/typert.host.js \
-  && node --check lib/client.js         # syntax checks
-dsh --profile web --dump-config         # composition-tree check
-dsh --profile web --port 3099           # real startup (watch logs and the UI)
-```
+Edit or mount entries under **Settings → Cost → Extended price table**. **Sync official prices** only rewrites the DeepSeek main table; provider tables are checked manually.
+
+## Relationship to upstream
+
+- Branch `od-go` is this fork (OpenDesign edition).
+- Other dsh-cost-meter forks (e.g. `cmdc-goat`) live in their own repositories/branches.
+- This branch contains **no** Command Code / OpenCode Go endpoints or copy.
 
 ## License
 
-[MIT](LICENSE) © 2026 dsh-cost-meter contributors (GOAT fork © 2026)
+[MIT](LICENSE), same as upstream.
