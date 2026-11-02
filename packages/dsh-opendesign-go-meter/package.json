@@ -1,0 +1,114 @@
+{
+  "name": "dsh-opendesign-go-meter",
+  "version": "1.6.12-goat.4",
+  "description": "DeepSeek Harness 会话费用统计插件(OpenDesign Cloud 定制版):本会话成本、当日费用、历史记录与官方价格同步,支持多厂商多模型价格计费(内置 39 个 OpenDesign 模型价格目录与自动匹配)、OpenDesign Cloud 订阅额度查询(5 小时 / 7 天两档 已用/全部 + 进度条)、Coding Plan 订阅额度查询与显示、自定义 Provider 余额查询、峰谷计价时段显示与切换前弹窗/系统通知提醒,界面中英双语。Fork of dsh-cost-meter with the Go-quota card repointed to OpenDesign Cloud: rolling-5h / 7-day quotas from the official Vela funding-check endpoint, shown as used/total with progress bars.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./typert": {
+      "default": "./lib/typert.host.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "dshhub": {
+    "schemaVersion": 1,
+    "displayName": "dsh-opendesign-go-meter",
+    "summary": "DeepSeek Harness 会话费用统计(OpenDesign Cloud 定制版):本会话费用、预算图框、官方余额、OpenDesign 订阅额度(5 小时 / 7 天 已用/全部+进度条)、Coding Plan 额度查询、历史记录,支持峰谷计价与官方价格一键同步。",
+    "categories": [
+      "费用",
+      "Web UI",
+      "观测"
+    ],
+    "surfaces": [
+      "host",
+      "web"
+    ],
+    "capabilities": {
+      "provides": [
+        "service:cost-meter"
+      ]
+    },
+    "compatibility": {
+      "dsh": ">=0.1.0-rc.5",
+      "node": ">=20"
+    },
+    "permissions": {
+      "network": [
+        "https://api.deepseek.com",
+        "https://api-docs.deepseek.com",
+        "https://open.volcengineapi.com",
+        "https://ark.cn-beijing.volces.com",
+        "https://opencode.ai",
+        "https://api.anthropic.com",
+        "https://api.z.ai",
+        "https://open.bigmodel.cn",
+        "https://www.minimaxi.com",
+        "https://www.minimax.io",
+        "https://api.kimi.com",
+        "https://api.moonshot.cn",
+        "https://openrouter.ai",
+        "https://api.siliconflow.cn",
+        "https://amr-api.open-design.ai",
+        "https://ax.ac.sugon.com"
+      ]
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "docs/provider-pricing.json"
+  ],
+  "dependencies": {
+    "@deepseek-ai/dsh-credentials": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-home-paths": "0.1.0-rc.6",
+    "zod": "4.4.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ycm50/dsh-subscribe-meter.git",
+    "directory": "packages/dsh-opendesign-go-meter"
+  },
+  "homepage": "https://github.com/ycm50/dsh-subscribe-meter/tree/cmdc-goat/packages/dsh-opendesign-go-meter#readme",
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "client-plugin",
+    "cost",
+    "usage",
+    "billing",
+    "opendesign",
+    "vela",
+    "quota",
+    "i18n",
+    "bilingual",
+    "zh",
+    "en"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node scripts/verify-typert.mjs",
+    "prepublishOnly": "node scripts/verify-typert.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  }
+}

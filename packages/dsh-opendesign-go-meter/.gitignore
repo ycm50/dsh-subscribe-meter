@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+.pnpm-store/
+pnpm-workspace.yaml
+
+# build output
+dist/
+out/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# scratch / probe scripts (never committed)
+tmpscripts/
+
+# DSH local storage (never commit keys or ledgers)
+storages/
+*.credential

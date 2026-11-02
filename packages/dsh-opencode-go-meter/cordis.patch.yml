@@ -1,0 +1,6 @@
+# dsh-opencode-go-meter bundle patch: one host row over the web profile.
+# The row name resolves from the profile's own node_modules where
+# `dsh plugin --profile desktop add <path>` installed this package.
+- insert:
+    - id: cost-meter
+      name: dsh-opencode-go-meter
