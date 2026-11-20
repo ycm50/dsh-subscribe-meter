@@ -6,6 +6,159 @@
 
 ## 1.6.12-od.2 (2026-10-30)
 
+### 修复:内置 Vela 登录按钮点了没反应
+
+**现象**:额度卡底部点「登录 OpenDesign」后卡片毫无变化,既不出现验证码也没有进度提示。
+
+**根因**:三个登录 RPC 的客户端绑定漏了解包。DSH 网关成功回包是 `{ ok: true, value: <业务结果> }`,
+同文件其余方法都走 `call()`(`if (h.ok !== true) throw; return h.value`),偏偏
+`getLoginState` / `startVelaLogin` / `cancelVelaLogin` 写成 `r(async () => a.getLoginState(), ...)`,
+把信封原样返回。组件读到的 `st.status` 恒为 `undefined`,于是按钮文案保持「登录」、轮询第一次就因
+`status !== "running"` 停止 → 激活 URL 与验证码永远不显示(`vela` 进程其实已在后台跑起来)。
+
+**改动**:
+- `client.js`:三个登录 RPC 改走 `call()` 统一解包;轮询改为 `setTimeout` + `useRef` 句柄,
+  进入 `running` 才轮询、离开即停、卸载清定时器(原先返回的停止函数被丢弃,轮询无法中止);
+  挂载时先读一次登录态,已登录用户不用点按钮就能看到正确状态;已登录时按钮文案改为「重新登录」。
+- `index.js`:`startVelaLogin` 删掉恒不成立的 `startedAt > 0` 死分支,改为真正复用在途进程;
+  失败文案追加 CLI 输出末尾 300 字(`npx` 兜底路径静默卡住时能看出卡在哪);
+  `cancelVelaLogin` 即使进程已自行退出也复位状态,取消不再留下失败提示。
+
+#### 修复(第二轮):「已登录」时点按钮仍然毫无反应
+
+**现象**:重启后卡片显示「已登录:xxx@…」+「重新登录」,点下去界面零变化。
+
+**根因**:宿主 `startLogin()` 开头有「`~/.amr/config.json` 里已有 controlKey 就直接返回
+`status:'completed'`」的短路,而 `startVelaLogin()` 不接受任何参数 —— 「重新登录」无从表达,
+被自己的短路吞掉:不 spawn CLI、不产生设备码、状态机回到 completed,界面看上去完全没反应。
+
+**改动**:
+- `index.js`:`startLogin(force)`,仅在 `force !== true` 时才走「已登录直接返回」短路;
+  `startVelaLogin(force = false)` 透传。
+- `typert.host.js`:新增 `loginForceSchema` / `_loginForce$codec`,给 `startVelaLogin` 声明
+  `{ name:'force', acceptsUndefined:true }` —— `acceptsUndefined` 保证旧客户端无参调用仍能通过网关
+  的 `assertExactArguments` 精确匹配(缺字段会被拒)。
+- `client.js`:按钮按 `lgCred.loggedIn` 决定传 `true`;`startVelaLogin` 绑定改为
+  `i("startVelaLogin", force === true ? [true] : [])`,未 force 时保持零实参,对旧宿主同样安全。
+- 顺手修 `lgApply` 里 `final?.activationUrl !== null` 的误判(字段缺失时是 `undefined` 恒真);
+  点击入口加 `console.info("[cost-meter] login button clicked")`,并加 15 秒看门狗复位 `lgBusy` ——
+  原先 RPC 若永不 settle,按钮会永久 disabled 且无任何日志,表现为彻底死掉。
+
+**验证(真实桌面 app 内)**:把 `~/.amr/config.json` 临时改名制造未登录态 → 点「登录 OpenDesign」→
+卡片切到「等待浏览器授权… / 取消登录」并显示验证码 `J24BAD` + 「打开授权页」;点「取消登录」→
+在途的 `vela.exe login` 被终止、状态回到「已登录 / 重新登录」;随后还原 `~/.amr/config.json`(SHA256 一致)。
+
+### 新增:登出按钮(清账号信息、保账本) + 历史数据导出 CSV
+
+**登出**:额度卡登录行新增「登出」。点一次变「确认登出?」,再点才执行,避免误触。
+清除内容严格限定在**本地登录态**:
+- `~/.amr/config.json`(以及旧版 CLI 可能写的 `~/.vela/config.json`)里每个 profile 的
+  `controlKey` / `runtimeKey` 置空、`user`(邮箱/姓名/头像)整块删除;
+  `apiUrl` / `linkUrl` 属于端点配置,保留;
+- DSH 凭据库中的 `VELA_CONTROL_KEY`(若已配置且可写)一并 `unset` —— 它在
+  `resolveOpenDesignKey` 里的优先级高于配置文件,只清文件会「登出成功但额度照旧」;
+- 进程内额度缓存与登录状态机复位,卡片不会继续显示上一个账号的数字。
+
+**账本完整保留**:`days` / `planSamples` / `planHourBuckets` / `sessions` 一律不动,
+登出不等于清历史(要清历史仍走「清除全部历史」)。
+
+官方 CLI 没有 logout 子命令(实测 `vela --help` 只有 login / auth status / whoami),
+因此这里按「login 写了什么就还原什么」实现,不依赖 CLI。
+
+**导出**:「历史数据」一行新增「导出 CSV」。按天汇总,一行一天,列为
+`date,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,calls,cost_usd,api_cost_usd`,
+带 UTF-8 BOM(Excel/WPS 直接双击不乱码),文件名 `cost-meter-history-YYYY-MM-DD.csv`,
+走浏览器 `Blob` + `<a download>`(桌面端与 Web 端通用,不依赖宿主能力)。
+
+> 第一版曾多带一列 `sessions`,实测导出的每一行都是 0 —— `Ledger.history()` 用
+> `copyDay(day, true)` 组装,本就是不含会话明细的轻量副本(`sessions` 恒为 `[]`),
+> 整列恒零只会误导,已删除。需要会话明细请用「按会话统计全部历史」。
+
+**顺带修掉的一处回归(重要)**:`startVelaLogin` 加了 `force` 参数后,客户端绑定改成了「未 force 时传空数组」,
+而客户端网关会先做**实参个数**校验(报错原文:`client api: …costMeter/startVelaLogin expected 1 argument(s), got 0`),
+于是首次登录直接变成「同步失败」。改为传 `[undefined]`:满足 arity,且 `prepareInvocation` 对 `undefined`
+会**跳过赋值**(源码 `if (value !== void 0) args[parameter.wire] = value`),宿主侧由 `acceptsUndefined` 放行 ——
+既不报错,也不会给旧宿主塞多余字段。
+
+**改动文件**:
+- `index.js`:`performVelaLogout()` + `velaConfigCandidates()`;`service.logoutVela`;中英登出文案。
+- `typert.host.js`:`costMeter/logoutVela` invocation(host 面 16 → 17)与方法文档。
+- `client.js`:`logoutVela` 描述符与 api 绑定;登录行「登出 / 确认登出?」按钮;
+  `exportCsv` 处理器与「导出 CSV」按钮;i18n 补 9 个键。
+
+**验证**:
+- 契约:`node scripts/verify-typert.mjs --plugin tmpscripts/verify-plugin` → host 17 invocation / client 27 codec OK;
+  三份文件 `node --check` 全 0。
+- 登出改写:在临时目录跑同一算法,输入真实 config → 输出 `controlKey=""` / `runtimeKey=""` /
+  `user` 已删,而 `apiUrl`、`linkUrl` 仍在;`readVelaLoginState` 判定由 `loggedIn:true` 变 `false`。
+- 导出:用真实账本(26 天)跑同一表格逻辑,生成 1853 字节 CSV,表头与数值列与账本一致;
+  桌面端实际点「导出 CSV」→ 落盘 `A:\Downloads\cost-meter-history-2026-11-20.csv`(1845 字节 / 27 行),
+  WPS 直接打开无乱码,数值与账本逐项对得上。
+
+### 修复:「导入安装前历史」恒返回 0 份日志(导入按钮无用)
+
+**现象**:设置页「历史数据 → 导入安装前历史」点下去只提示"没有可导入的安装前历史(扫描 0 份会话日志)",
+无论账本缺多少天都导不进任何东西。
+
+**根因**:`backfill.js` 的 `listSessionLogs()` 把会话日志文件名写死成
+`session.jsonl.zstd` / `session.jsonl` 两个 v0 名字,而宿主早已按"代"命名
+(`session.v1.jsonl.zstd` … 当前是 `session.v4.jsonl.zstd`)。实测本机 `$DSH_HOME/sessions`
+下 8 份日志全是 `session.v4.jsonl.zstd`,旧实现匹配到 **0 份** → `scanned=0`、
+`days=0`、`sessions=0`,自然是"没有可导入的历史"。
+(同一 bug 也拖累了 `backfillLegacyLedger` / `recomputeLedgerPricingBasis` 这些按日志回放的路径。)
+
+**改动**(`backfill.js`):新增 `sessionLogGeneration()` 解析 `session[.vN].jsonl[.zstd]` 的代编号,
+`listSessionLogs()` 改为逐目录列举、**取编号最高的那一代**(与宿主运行时
+"select the numerically highest canonical generation" 一致),同代内 `.zstd` 优先。
+`readSessionRecords()` 无需改动 —— 各代容器都是同一种 zstd frame / JSONL 事件流,实测 v4 日志
+逐帧解压后 `assistant/message` 记录里带完整 `usage`(inputTokens / outputTokens / cacheReadTokens)。
+
+**验证**:
+- 枚举:同一份真实目录,旧实现 `found: 0`,新实现 `found: 8`(全部 gen=4);
+- 解压:抽 3 份日志逐帧扫描(167 / 2587 / 518 帧)全部成功解出 362 / 6231 / 1330 条记录,
+  usage 记录数 45 / 639 / 136;
+- 端到端:拿真实账本副本,①删掉整天 `2026-11-20` 后导入 → `{"days":1,"sessions":7,"scanned":8}`,
+  该日被重建(1057 次调用 / $2.22 / 7 个会话);②整本账清空(等价"清除全部历史")后导入 → 同样重建。
+  (重建值低于原账本 1726 次调用,因为该日原有 10 个会话而磁盘上只剩 8 份日志、其中 1 份无用量 —— 
+  日志覆盖不到的会话本就无法重建,属"尽力而为"语义。)
+
+### 新增:历史 CSV 入账(与「导出 CSV」对称)
+
+**入口**:「历史数据」一行在「导出 CSV」旁边新增「导入 CSV」。点按钮选一个 CSV 文件,
+客户端读出全文后交给宿主 `costMeter/importHistoryCsv` 按天合并。
+
+**语义**(默认 `skip`,幂等):
+- 账本里**已有用量**(`calls>0` / tokens>0 / `cost>0`)的日期跳过 —— 同一份 CSV 导多少次
+  金额都不会翻倍;被跳过的日期随结果回报(`新增 N 天、并入 M 天、跳过已有 K 天`)。
+- 缺失日期按 **CSV 原值**整日写入:金额直接用 `cost_usd`,**不按本机价目重算** ——
+  CSV 往往是别的机器/别的价目算出来的,重算只会对不上。
+- 同时补一条 `csv-import:imported` 的 `byProviderModel` 桶与一个合成会话 `csv-import:<日期>`,
+  保证按模型 / 按会话 / Plan 统计不会因缺桶而漏算或报错(该桶不属于任何 Plan 渠道,不会污染分账)。
+- `mode` 可选 `add`(并入已有天)/ `replace`(覆盖已有天),UI 只用默认 skip;
+  描述符里标 `acceptsUndefined`,不传也能通过网关的精确字段匹配。
+
+**解析**(`lib/csv-import.js`,新文件,无外部依赖):
+- 表头大小写/空格不敏感,并接受中文与常见别名(`日期`/`输入`/`输出`/`费用`/`input`/`cache_read_input_tokens` 等);
+- 支持 BOM、CRLF、空行、引号包裹、引号内逗号与双写引号转义;
+- 日期容忍 `YYYY-M-D` / `YYYY/MM/DD` / 带时间的 ISO 串,统一归一化为 `YYYY-MM-DD`;
+- 同一天出现多行则累加;整行全 0(无用量)丢弃,不会把一天"占"成已有;
+- 逐行解析失败只跳过该行并计入报错条数,结果消息里明示"其中 N 行无法解析",不做静默吞掉。
+
+**改动文件**:
+- `csv-import.js`(新增):`splitCsvLine` / `parseHistoryCsv` / `normalizeDateKey` / `mergeHistoryRows`。
+- `index.js`:`importHistoryCsv(text, mode)` RPC + 中英文案。
+- `typert.host.js`:`CsvImportText` / `CsvImportMode` codec 与 invocation(host 面 17 → 18)、方法文档。
+- `client.js`:codec、描述符、api 绑定、隐藏 file input + 「导入 CSV」按钮、i18n。
+
+**验证**:
+- 解析:对本机导出的真实 CSV(26 天)→ `rows=26`,`errors=[]`;
+  另测 BOM+CRLF / 引号内逗号 / 中文别名 / 空行 / 坏日期 / 全零行 / 无表头 / 重复日期 八种脏输入,
+  行为均符合预期(坏行只跳过并报错,全零与无表头直接拒绝并给原因)。
+- 合并:空账本全量导入 26 天;同一份再导一次 → `added=0 skipped=26` 且金额不变(幂等);
+  已有 1 天的账本 → 只补其余 25 天、已有天原值保留;
+  `add` 模式 0.5+3.489662=3.989662、`replace` 模式回落为 CSV 的 3.489662,均与预期一致。
+- 契约:`verify-typert` → host 18 invocation / client 29 codec OK;四份文件 `node --check` 全 0。
+
 ### 变更:窗口按美元展示 + 内置 Vela 登录入口
 
 **额度数字**:此前直接透传接口的 credits(50000 / 150000),面板显示成 50000/150000,与官方文档口径($10 / $30)不一致。

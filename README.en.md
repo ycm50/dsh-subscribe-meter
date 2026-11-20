@@ -36,6 +36,8 @@ This plugin is a custom fork of [dsh-cost-meter](https://github.com/Han-1413141/
 | Credentials | Uses the **Vela CLI sign-in `controlKey`** (run `npx @powerformer/vela-cli login` once; it writes `~/.amr/config.json`), not an `sk-*` inference key. Resolution order: DSH credential store `VELA_CONTROL_KEY` → env `VELA_CONTROL_KEY` → `~/.amr/config.json` |
 | Price table | Ships an **`opendesign` provider with 39 models**, from the public `GET /api/v1/public/model-prices` endpoint (fetched 2026-10-30, cacheRead included) |
 | Copy | All "Command Code GOAT" text is now "OpenDesign Cloud"; adds a `goQuotaTierNote` string (zh/en) |
+| Sign-in entry | The card ships Sign in / Sign in again / Cancel / Sign out, driving the official CLI device flow without a terminal |
+| History data | Import pre-install history (replays session logs), Export CSV (per-day summary), Import CSV (idempotent merge) |
 
 ## Install
 
@@ -83,7 +85,49 @@ Under the hood it launches the official CLI's `login` subcommand (device authori
 
 The plugin then reads `profiles.prod.controlKey` from `~/.amr/config.json` automatically. The same value can live in the DSH credential store or the `VELA_CONTROL_KEY` environment variable (handy for CI or multiple machines).
 
+### Sign in again and Sign out
+
+- Once signed in the button reads "**Sign in again**": it makes the host **force a fresh device authorization**
+  even though a local controlKey exists, so a new code always appears instead of being short-circuited.
+- Next to it is "**Sign out**": first click turns it into "Sign out?", the second click executes.
+  - Only the **local sign-in state** is cleared: every profile's `controlKey` / `runtimeKey` in
+    `~/.amr/config.json` (and `~/.vela/config.json` for older CLIs) is blanked and `user` (email/name/avatar)
+    is removed; the DSH credential store's `VELA_CONTROL_KEY` is unset when present and writable; the in-process
+    quota cache and login state machine are reset. `apiUrl` / `linkUrl` are endpoint config and stay.
+  - The **ledger is kept intact**: cost history, session stats and plan samples are untouched — signing out is
+    not clearing history.
+  - The official CLI has **no** logout subcommand (verified: `vela --help` only lists login / auth status / whoami),
+    so sign-out is implemented as "restore whatever login wrote".
+
 > ⚠️ There is deliberately **no** manual key field in Settings: a controlKey outranks an API key (it can read the whole billing ledger and workspace), so it should not be pasted into a text box. To configure it from Settings, store `VELA_CONTROL_KEY` in the DSH credential store instead.
+
+## History data: import / export / merge
+
+Settings → Cost → Usage → History data has three buttons:
+
+| Button | What it does | Idempotent? |
+|---|---|---|
+| **Import pre-install history** | Replays every session log under `$DSH_HOME/sessions` and rebuilds cost records for dates missing from the ledger | Yes (known sessions are not double-counted) |
+| **Export CSV** | Writes a per-day CSV summary (one row per day) with a BOM so WPS/Excel open it cleanly | — |
+| **Import CSV** | Merges such a CSV **back into the ledger** | **Yes** (days that already have usage are skipped by default) |
+
+> Session log filenames carry a generation suffix (`session.v4.jsonl.zstd` and friends); the plugin picks the
+> **highest generation**, matching host behaviour. Older builds hard-coded the v0 names (`session.jsonl` /
+> `session.jsonl.zstd`), matched nothing after the host upgraded, and "Import pre-install history" therefore always
+> reported "scanned 0 session logs" — fixed.
+
+**CSV merge semantics**:
+
+- Amounts are taken **as-is from the CSV** (never re-derived from the local price table); the CSV was probably
+  produced on another machine or against another price list.
+- Days that already have usage (`calls>0` / tokens>0 / `cost>0`) are **skipped**, so importing the same file twice
+  never doubles the amounts; the result reports "N added, M merged, K skipped".
+- A synthetic `csv-import:imported` model bucket and a synthetic session `csv-import:<date>` are added so
+  per-model / per-session / plan statistics never miss a bucket.
+- Headers are case- and whitespace-insensitive and accept Chinese aliases (`日期` / `输入` / `输出` / `费用`);
+  BOM, CRLF, quoting, commas inside quotes, `YYYY/MM/DD` and ISO datetimes are handled; several rows for one day
+  are summed; bad rows are skipped and counted in the message.
+- `mode=add` (merge into existing days) and `mode=replace` (overwrite existing days) also exist; the UI uses skip.
 
 ## Quota semantics (measured)
 

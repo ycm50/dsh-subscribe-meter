@@ -36,6 +36,8 @@
 | 凭据 | 用 **Vela CLI 登录态 `controlKey`**(跑一次 `npx @powerformer/vela-cli login` 写入 `~/.amr/config.json`),不是 `sk-*` 推理 Key;解析顺序:DSH 凭据库 `VELA_CONTROL_KEY` → 环境变量 `VELA_CONTROL_KEY` → `~/.amr/config.json` |
 | 价格表 | 内置 **`opendesign` provider 39 个模型目录价**,来自官方公开端点 `GET /api/v1/public/model-prices`(2026-10-30 抓取,含 cacheRead 缓存读价) |
 | 文案 | 全部 "Command Code GOAT" → "OpenDesign Cloud",新增 `goQuotaTierNote`(中/英)文案 |
+| 登录入口 | 卡片内置「登录 / 重新登录 / 取消 / 登出」,后台拉起官方 CLI 的设备授权流程,不依赖终端 |
+| 历史数据 | 「导入安装前历史」(回放会话日志)、「导出 CSV」(按天汇总)、「导入 CSV」(幂等入账)三件套 |
 
 ## 安装
 
@@ -84,7 +86,45 @@ dsh web
 
 登录后插件会自动从 `~/.amr/config.json` 读到 `profiles.prod.controlKey`。也可以把同一个值放进 DSH 凭据库或环境变量 `VELA_CONTROL_KEY`(适合 CI / 多机)。
 
+### 重新登录与登出
+
+- 已登录时按钮文案变成「**重新登录**」——点它会让宿主**强制重走一次设备授权**(即使本地已有 controlKey),
+  不被"已登录直接返回"短路,新的验证码会重新出现。
+- 旁边还有一个「**登出**」:点一次变成「确认登出?」,再点才执行。
+  - 清除范围严格限定在**本地登录态**:`~/.amr/config.json`(以及旧版 CLI 可能写的 `~/.vela/config.json`)
+    里每个 profile 的 `controlKey` / `runtimeKey` 置空、`user`(邮箱/姓名/头像)整块删除;
+    DSH 凭据库里的 `VELA_CONTROL_KEY`(若已配置且可写)一并 `unset`;进程内额度缓存与登录状态机复位。
+    `apiUrl` / `linkUrl` 是端点配置,保留。
+  - **账本完整保留**:费用历史、会话统计、Plan 采样一律不动 —— 登出不等于清历史。
+  - 官方 CLI **没有** logout 子命令(实测 `vela --help` 只有 login / auth status / whoami),
+    所以登出按"login 写了什么就还原什么"实现,不依赖 CLI。
+
 > ⚠️ 设置页**没有**手填 Key 的入口:controlKey 权限比 API Key 高(能读整份账单与工作区),不应该让人往输入框里粘。要在设置页里配,请用「DSH 凭据库」写 `VELA_CONTROL_KEY`。
+
+## 历史数据:导入 / 导出 / 入账
+
+设置页「费用 → 用量 → 历史数据」那一行有三个按钮:
+
+| 按钮 | 做什么 | 幂等? |
+|---|---|---|
+| **导入安装前历史** | 回放 `$DSH_HOME/sessions` 下的**全部会话日志**,为账本缺失的日期重建费用条目 | 是(已有会话不重复计) |
+| **导出 CSV** | 把历史按天汇总成 CSV(一行一天),带 BOM,WPS/Excel 双击不乱码 | — |
+| **导入 CSV** | 把这样一份 CSV **合并回账本** | **是**(已有用量的日期默认跳过) |
+
+> 会话日志文件名带"代"号(`session.v4.jsonl.zstd` 之类),插件按宿主规则取**编号最高的那一代**。
+> 旧版本写死了 v0 名字(`session.jsonl` / `session.jsonl.zstd`),宿主升级后一个都匹配不上,
+> 「导入安装前历史」于是恒返回"扫描 0 份会话日志" —— 已修。
+
+**CSV 入账语义**:
+
+- 金额**按 CSV 原值**入账(不按本机价目重算);CSV 往往是别的机器/别的价目算出来的。
+- 账本里已有用量(`calls>0` / tokens>0 / `cost>0`)的日期**跳过**,同一份文件重复导入金额不会翻倍;
+  结果消息会报「新增 N 天、并入 M 天、跳过已有 K 天」。
+- 同时补一条 `csv-import:imported` 的按模型桶与一个合成会话 `csv-import:<日期>`,
+  按模型/按会话/Plan 统计不会因缺桶而漏算。
+- 表头大小写与空格不敏感,接受中文别名(`日期`/`输入`/`输出`/`费用`);支持 BOM、CRLF、引号包裹、
+  引号内逗号、`YYYY/MM/DD` 与带时间的 ISO 日期;同一天多行累加;坏行只跳过并明示条数。
+- 另有 `mode=add`(并入已有天)/ `mode=replace`(覆盖已有天),UI 只用默认的 skip。
 
 ## 额度口径(实测)
 
